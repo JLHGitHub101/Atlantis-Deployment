@@ -2,10 +2,11 @@
 set -e
 
 # Update system
-dnf update -y
+apt-get update
+DEBIAN_FRONTEND=noninteractive apt-get upgrade -y
 
 # Install required packages
-dnf install -y wget unzip git
+apt-get install -y wget unzip git curl
 
 # Create atlantis user
 useradd --system --create-home --shell /bin/bash atlantis

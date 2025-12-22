@@ -21,7 +21,7 @@ output "instance_public_ip" {
 
 output "ssh_command" {
   description = "SSH command to connect to the instance"
-  value       = "ssh -i /path/to/key.pem ec2-user@${local.active_instance_ip}"
+  value       = "ssh -i /path/to/key.pem ubuntu@${local.active_instance_ip}"
 }
 
 output "instance_type" {

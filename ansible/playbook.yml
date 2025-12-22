@@ -14,18 +14,22 @@
     github_webhook_secret: "{{ lookup('env', 'GITHUB_WEBHOOK_SECRET') }}"
 
   tasks:
-    - name: Update system packages
-      dnf:
-        name: "*"
-        state: latest
+    - name: Update apt cache
+      apt:
         update_cache: yes
+        cache_valid_time: 3600
+
+    - name: Upgrade all packages
+      apt:
+        upgrade: dist
 
     - name: Install required packages
-      dnf:
+      apt:
         name:
           - wget
           - unzip
           - git
+          - curl
         state: present
 
     - name: Create atlantis system user

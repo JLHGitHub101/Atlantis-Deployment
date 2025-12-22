@@ -6,6 +6,8 @@ This is a Day 0 Bootstrap deployment of [Atlantis](https://www.runatlantis.io/) 
 
 This repository provides a complete Infrastructure as Code (IaC) solution to deploy Atlantis, a tool for automating Terraform via pull requests. The deployment is optimized for cost savings using AWS spot instances and minimal resource requirements.
 
+The deployment uses **Ubuntu 22.04 LTS** as the base operating system for reliability and long-term support.
+
 ## Cost Optimization Features
 
 - **Spot Instances**: Uses AWS Spot Instances by default for up to 70% cost savings
@@ -166,7 +168,7 @@ After successful deployment, Terraform provides the following outputs:
 ### SSH into Instance
 
 ```bash
-ssh -i /path/to/key.pem ec2-user@<instance-ip>
+ssh -i /path/to/key.pem ubuntu@<instance-ip>
 ```
 
 ### Check Service Status
