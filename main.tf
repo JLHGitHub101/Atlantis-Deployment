@@ -188,6 +188,8 @@ resource "aws_launch_template" "atlantis" {
     market_type = "spot"
     spot_options {
       max_price = var.spot_price
+      # Using one-time for cost optimization - instance will not be automatically restarted if interrupted
+      # For production, consider using 'persistent' with proper handling of interruptions
       spot_instance_type = "one-time"
     }
   }
@@ -238,13 +240,13 @@ resource "aws_instance" "atlantis_ondemand" {
   iam_instance_profile   = aws_iam_instance_profile.atlantis.name
   key_name               = var.ssh_public_key != "" ? aws_key_pair.atlantis[0].key_name : null
 
-  user_data = templatefile("${path.module}/user-data.sh", {
+  user_data = base64encode(templatefile("${path.module}/user-data.sh", {
     atlantis_version = var.atlantis_version
     atlantis_port    = var.atlantis_port
     github_user      = var.github_user
     github_token     = var.github_token
     webhook_secret   = var.github_webhook_secret
-  })
+  }))
 
   tags = {
     Name = "${var.project_name}-ondemand-instance"

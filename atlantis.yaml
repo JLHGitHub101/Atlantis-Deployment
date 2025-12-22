@@ -1,0 +1,21 @@
+version: 3
+projects:
+- name: atlantis-deployment
+  dir: .
+  workspace: default
+  terraform_version: v1.6.6
+  autoplan:
+    when_modified: ["*.tf", "*.tfvars"]
+    enabled: true
+  apply_requirements: [mergeable, approved]
+  workflow: default
+
+workflows:
+  default:
+    plan:
+      steps:
+      - init
+      - plan
+    apply:
+      steps:
+      - apply

@@ -73,18 +73,15 @@ openssl rand -hex 20
 
 ### 3. Deploy Infrastructure
 
-Initialize Terraform:
+**Option A: Using the deploy script (recommended)**
+```bash
+./deploy.sh
+```
+
+**Option B: Manual deployment**
 ```bash
 terraform init
-```
-
-Review the deployment plan:
-```bash
 terraform plan
-```
-
-Deploy:
-```bash
 terraform apply
 ```
 
@@ -202,6 +199,12 @@ sudo systemctl restart atlantis
 
 To destroy all resources:
 
+**Option A: Using the destroy script**
+```bash
+./destroy.sh
+```
+
+**Option B: Manual destruction**
 ```bash
 terraform destroy
 ```
