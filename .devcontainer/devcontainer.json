@@ -1,12 +1,30 @@
+
 {
-  "name": "Dev Environment",
-  "image": "dev-env",
+  "name": "Universal Dev Environment",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": ".."
+  },
   "workspaceFolder": "/workspace",
   "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind",
+
   "mounts": [
-    "source=${env:HOME}/.ssh,target=/root/.ssh,type=bind,consistency=cached",
-    "source=${env:HOME}/.aws,target=/root/.aws,type=bind,consistency=cached"
+    "source=${env:HOME}/.ssh,target=/root/.ssh,type=bind",
+    "source=${env:HOME}/.aws,target=/root/.aws,type=bind"
   ],
+
   "remoteUser": "root",
-  "features": {}
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "hashicorp.terraform",
+        "redhat.ansible",
+        "ms-python.python",
+        "ms-azuretools.vscode-docker",
+        "github.vscode-github-actions",
+        "eamodio.gitlens"
+      ]
+    }
+  }
 }
