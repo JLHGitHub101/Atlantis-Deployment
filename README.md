@@ -191,11 +191,26 @@ sudo systemctl restart atlantis
 
 ## Security Considerations
 
-1. **Restrict Access**: Update `allowed_cidr_blocks` to your IP address
-2. **Secure Credentials**: Use AWS Secrets Manager or Parameter Store for sensitive data
-3. **Update Regularly**: Keep Atlantis version updated
-4. **Use HTTPS**: Consider adding an Application Load Balancer with SSL/TLS
-5. **Repo Allowlist**: Configure specific repositories instead of using `'*'`
+1. **Restrict Access**: Update `allowed_cidr_blocks` to your IP address instead of `0.0.0.0/0`
+   ```hcl
+   allowed_cidr_blocks = ["YOUR_IP/32"]  # Replace with your IP
+   ```
+
+2. **Secure Credentials**: Use AWS Secrets Manager or Parameter Store for sensitive data in production
+
+3. **Update Regularly**: Keep Atlantis version updated for security patches
+
+4. **Use HTTPS**: This deployment uses HTTP by default. For production:
+   - Add an Application Load Balancer with SSL/TLS certificate
+   - Or use Let's Encrypt with certbot on the instance
+   - Update webhook URL to use HTTPS
+
+5. **Repo Allowlist**: Configure specific repositories instead of using `'*'` wildcard
+   ```bash
+   --repo-allowlist='github.com/yourorg/*'
+   ```
+
+6. **Multi-AZ**: For production, consider deploying across multiple availability zones
 
 ## Cleanup
 
