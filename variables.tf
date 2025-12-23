@@ -1,13 +1,13 @@
 variable "aws_region" {
   description = "AWS region to deploy resources"
   type        = string
-  default     = "us-east-1"
+  default     = "us-west-2"
 }
 
 variable "environment" {
   description = "Environment name"
   type        = string
-  default     = "dev"
+  default     = "production"
 }
 
 variable "project_name" {
@@ -64,6 +64,17 @@ variable "ssh_public_key" {
   default     = ""
 }
 
+variable "ansible_private_key_secret_arn" {
+  type        = string
+  default     = ""
+  description = "ARN of Secrets Manager secret containing the private key JSON { \"private_key\": \"...\" }"
+}
+
+variable "atlantis_version" {
+  description = "Atlantis version to install"
+  type        = string
+  default     = "0.28.1"
+}
 variable "github_user" {
   description = "GitHub username for Atlantis"
   type        = string
@@ -84,8 +95,4 @@ variable "github_webhook_secret" {
   default     = ""
 }
 
-variable "atlantis_version" {
-  description = "Atlantis version to install"
-  type        = string
-  default     = "0.28.1"
-}
+
