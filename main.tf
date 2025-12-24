@@ -23,7 +23,7 @@ data "aws_ami" "ubuntu" {
 resource "aws_iam_role" "atlantis" {
   name = "atlantis-role"
   assume_role_policy = jsonencode({
-    Version = "2012-10-17",
+    Version   = "2012-10-17",
     Statement = [{ Action = "sts:AssumeRole", Effect = "Allow", Principal = { Service = "ec2.amazonaws.com" } }]
   })
 }
@@ -42,8 +42,8 @@ resource "aws_iam_role_policy" "atlantis_terraform" {
   policy = jsonencode({
     Version = "2012-10-17",
     Statement = [{
-      Effect = "Allow",
-      Action = ["ec2:*", "vpc:*"],
+      Effect   = "Allow",
+      Action   = ["ec2:*", "vpc:*"],
       Resource = "*"
     }]
   })
@@ -190,17 +190,17 @@ resource "aws_key_pair" "atlantis" {
 }
 
 resource "aws_instance" "atlantis" {
-    ami                    = data.aws_ami.ubuntu.id
-    instance_type          = var.instance_type
-    iam_instance_profile = aws_iam_instance_profile.atlantis.name
-    subnet_id              = aws_subnet.public.id
-    vpc_security_group_ids = [aws_security_group.atlantis.id]
-    #key_name               = var.ssh_public_key != "" ? aws_key_pair.atlantis[0].key_name : null
+  ami                    = data.aws_ami.ubuntu.id
+  instance_type          = var.instance_type
+  iam_instance_profile   = aws_iam_instance_profile.atlantis.name
+  subnet_id              = aws_subnet.public.id
+  vpc_security_group_ids = [aws_security_group.atlantis.id]
+  #key_name               = var.ssh_public_key != "" ? aws_key_pair.atlantis[0].key_name : null
 
   # 20GB Disk for Terraform Plans
   root_block_device {
-    volume_size = 20
-    volume_type = "gp3"
+    volume_size           = 20
+    volume_type           = "gp3"
     delete_on_termination = true
   }
 
@@ -214,42 +214,3 @@ resource "aws_route53_record" "atlantis" {
   ttl     = "300"
   records = [aws_instance.atlantis.public_ip]
 }
-
-# S3 bucket for SSM file transfers
-resource "aws_s3_bucket" "ssm_transfer" {
-  bucket_prefix = "${var.project_name}-ssm-"
-  
-  tags = {
-    Name = "${var.project_name}-ssm-transfer"
-  }
-}
-
-resource "aws_s3_bucket_lifecycle_configuration" "ssm_transfer" {
-  bucket = aws_s3_bucket.ssm_transfer.id
-
-  rule {
-    id     = "cleanup-old-files"
-    status = "Enabled"
-
-    filter {
-      prefix = ""
-    }
-
-    expiration {
-      days = 1
-    }
-  }
-}
-
-  output "atlantis_instance_id" {
-    value = aws_instance.atlantis.id
-  }
-
-  output "atlantis_public_ip" {
-    value = aws_instance.atlantis.public_ip
-  }
-
-  output "ssm_bucket_name" {
-    value = aws_s3_bucket.ssm_transfer.id
-    description = "S3 bucket for SSM file transfers"
-  }

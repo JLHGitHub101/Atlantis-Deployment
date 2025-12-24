@@ -50,13 +50,7 @@
         state: present
         update_cache: yes
 
-    - name: Fetch Ansible SSH Private Key from Secrets Manager
-      shell: |
-        aws secretsmanager get-secret-value --secret-id atlantis/ansible-ssh-key-btUinW \
-          --query SecretString \
-          --output text \
-          --region us-west-2 | jq -r '.private_key' > /home/atlantis/.ssh/id_rsa
-      changed_when: false
+    # SSM is used for connection, SSH key fetch is not required.
 
     # --- ATLANTIS INSTALLATION ---
     - name: Install Atlantis Binary

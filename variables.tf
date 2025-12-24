@@ -43,7 +43,7 @@ variable "use_spot_instance" {
 variable "spot_price" {
   description = "Maximum spot price (empty for on-demand price)"
   type        = string
-  default     = "0.0104"  # Max price for t3.micro spot
+  default     = "0.0104" # Max price for t3.micro spot
 }
 
 variable "allowed_cidr_blocks" {
@@ -55,7 +55,7 @@ variable "allowed_cidr_blocks" {
 variable "github_webhook_cidr_blocks" {
   description = "GitHub webhook IP ranges (auto-populated from GitHub API)"
   type        = list(string)
-  default     = [
+  default = [
     "140.82.112.0/20",
     "143.55.64.0/20",
     "185.199.108.0/22",
