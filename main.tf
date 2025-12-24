@@ -1,3 +1,21 @@
+###
+data "aws_caller_identity" "current" {}
+
+data "aws_ami" "ubuntu" {
+  most_recent = true
+  owners      = ["099720109477"] # Canonical
+
+  filter {
+    name   = "name"
+    values = ["ubuntu/images/hvm-ssd/ubuntu-jammy-22.04-amd64-server-*"]
+  }
+
+  filter {
+    name   = "virtualization-type"
+    values = ["hvm"]
+  }
+}
+
 # IAM role for EC2:
 # - SSM access (AmazonSSMManagedInstanceCore)
 # - Read Secrets Manager
@@ -15,9 +33,20 @@ resource "aws_iam_role_policy_attachment" "ssm" {
   policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
 }
 
-resource "aws_iam_role_policy_attachment" "PowerUser" {
-  role       = aws_iam_role.atlantis.name
-  policy_arn = "arn:aws:iam::aws:policy/PowerUserAccess" # Or scope this down strictly!
+# Least-privilege IAM policy for Terraform operations used by the Atlantis server.
+# This policy is intentionally scoped to networking and EC2 resources managed in this module,
+# instead of using the broad PowerUserAccess managed policy.
+resource "aws_iam_role_policy" "atlantis_terraform" {
+  name = "atlantis-terraform-operations"
+  role = aws_iam_role.atlantis.id
+  policy = jsonencode({
+    Version = "2012-10-17",
+    Statement = [{
+      Effect = "Allow",
+      Action = ["ec2:*", "vpc:*"],
+      Resource = "*"
+    }]
+  })
 }
 
 resource "aws_iam_role_policy" "secrets_access" {
@@ -28,7 +57,10 @@ resource "aws_iam_role_policy" "secrets_access" {
     Statement = [{
       Effect = "Allow",
       Action = "secretsmanager:GetSecretValue",
-      Resource = "arn:aws:secretsmanager:us-west-2:*:secret:atlantis/*" # Update Region if needed
+      Resource = [
+        "arn:aws:secretsmanager:us-west-2:778265708060:secret:atlantis/prod/config-k9SyAP",
+        "arn:aws:secretsmanager:us-west-2:778265708060:secret:atlantis/ansible-ssh-key-btUinW"
+      ]
     }]
   })
 }
@@ -36,6 +68,11 @@ resource "aws_iam_role_policy" "secrets_access" {
 resource "aws_iam_instance_profile" "atlantis" {
   name = "atlantis-profile"
   role = aws_iam_role.atlantis.name
+
+  depends_on = [
+    aws_iam_role_policy_attachment.ssm,
+    aws_iam_role_policy.atlantis_terraform,
+  ]
 }
 
 #########################
@@ -86,26 +123,40 @@ resource "aws_route_table" "public" {
     Name = "${var.project_name}-public-rt"
   }
 }
-
 # Route Table Association
 resource "aws_route_table_association" "public" {
   subnet_id      = aws_subnet.public.id
   route_table_id = aws_route_table.public.id
 }
 
-# Security Group
+# Security Group with GitHub webhook IPs
 resource "aws_security_group" "atlantis" {
   name_prefix = "${var.project_name}-sg"
-  description = "Security group for Atlantis server"
+  description = "Security group for Atlantis server - allows GitHub webhooks + optional IP ranges"
   vpc_id      = aws_vpc.main-vpc.id
 
-  # Atlantis web interface
-  ingress {
-    from_port   = var.atlantis_port
-    to_port     = var.atlantis_port
-    protocol    = "tcp"
-    cidr_blocks = var.allowed_cidr_blocks
-    description = "Atlantis web interface"
+  # GitHub webhook IPs (always allowed)
+  dynamic "ingress" {
+    for_each = var.github_webhook_cidr_blocks
+    content {
+      from_port   = var.atlantis_port
+      to_port     = var.atlantis_port
+      protocol    = "tcp"
+      cidr_blocks = [ingress.value]
+      description = "GitHub webhook"
+    }
+  }
+
+  # Additional allowed IPs (for your access, etc.)
+  dynamic "ingress" {
+    for_each = length(var.allowed_cidr_blocks) > 0 ? var.allowed_cidr_blocks : []
+    content {
+      from_port   = var.atlantis_port
+      to_port     = var.atlantis_port
+      protocol    = "tcp"
+      cidr_blocks = [ingress.value]
+      description = "Atlantis web interface (custom)"
+    }
   }
 
   # Outbound internet access
@@ -144,20 +195,13 @@ resource "aws_instance" "atlantis" {
     iam_instance_profile = aws_iam_instance_profile.atlantis.name
     subnet_id              = aws_subnet.public.id
     vpc_security_group_ids = [aws_security_group.atlantis.id]
-    key_name               = var.ssh_public_key != "" ? aws_key_pair.atlantis[0].key_name : null
-
-    user_data = base64encode(templatefile("${path.module}/user-data.sh", {
-    atlantis_version = var.atlantis_version
-    atlantis_port    = var.atlantis_port
-    github_user      = var.github_user
-    github_token     = var.github_token
-    webhook_secret   = var.github_webhook_secret
-  }))
+    #key_name               = var.ssh_public_key != "" ? aws_key_pair.atlantis[0].key_name : null
 
   # 20GB Disk for Terraform Plans
   root_block_device {
     volume_size = 20
     volume_type = "gp3"
+    delete_on_termination = true
   }
 
   tags = { Name = "atlantis-server" }
@@ -171,6 +215,41 @@ resource "aws_route53_record" "atlantis" {
   records = [aws_instance.atlantis.public_ip]
 }
 
-output "atlantis_public_ip" {
-  value = aws_instance.atlantis.public_ip
+# S3 bucket for SSM file transfers
+resource "aws_s3_bucket" "ssm_transfer" {
+  bucket_prefix = "${var.project_name}-ssm-"
+  
+  tags = {
+    Name = "${var.project_name}-ssm-transfer"
+  }
 }
+
+resource "aws_s3_bucket_lifecycle_configuration" "ssm_transfer" {
+  bucket = aws_s3_bucket.ssm_transfer.id
+
+  rule {
+    id     = "cleanup-old-files"
+    status = "Enabled"
+
+    filter {
+      prefix = ""
+    }
+
+    expiration {
+      days = 1
+    }
+  }
+}
+
+  output "atlantis_instance_id" {
+    value = aws_instance.atlantis.id
+  }
+
+  output "atlantis_public_ip" {
+    value = aws_instance.atlantis.public_ip
+  }
+
+  output "ssm_bucket_name" {
+    value = aws_s3_bucket.ssm_transfer.id
+    description = "S3 bucket for SSM file transfers"
+  }

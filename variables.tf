@@ -13,7 +13,7 @@ variable "environment" {
 variable "project_name" {
   description = "Project name for resource naming"
   type        = string
-  default     = "atlantis"
+  default     = "atlantis-deployment"
 }
 
 variable "vpc_cidr" {
@@ -47,9 +47,31 @@ variable "spot_price" {
 }
 
 variable "allowed_cidr_blocks" {
-  description = "CIDR blocks allowed to access Atlantis"
+  description = "CIDR blocks allowed to access Atlantis UI (GitHub webhook IPs always allowed on port 4141)"
   type        = list(string)
-  default     = ["0.0.0.0/0"]  # Change this to your IP for better security
+  default     = []
+}
+
+variable "github_webhook_cidr_blocks" {
+  description = "GitHub webhook IP ranges (auto-populated from GitHub API)"
+  type        = list(string)
+  default     = [
+    "140.82.112.0/20",
+    "143.55.64.0/20",
+    "185.199.108.0/22",
+    "192.30.252.0/22",
+    "20.201.28.151/32",
+    "20.205.243.166/32",
+    "20.87.225.0/24",
+    "20.248.137.48/32",
+    "20.207.73.82/32",
+    "20.200.245.247/32",
+    "20.201.31.182/32",
+    "54.185.161.84/32",
+    "54.187.174.169/32",
+    "54.187.205.235/32",
+    "54.187.216.72/32"
+  ]
 }
 
 variable "atlantis_port" {
@@ -73,26 +95,5 @@ variable "ansible_private_key_secret_arn" {
 variable "atlantis_version" {
   description = "Atlantis version to install"
   type        = string
-  default     = "0.28.1"
-}
-variable "github_user" {
-  description = "GitHub username for Atlantis"
-  type        = string
   default     = ""
 }
-
-variable "github_token" {
-  description = "GitHub token for Atlantis"
-  type        = string
-  sensitive   = true
-  default     = ""
-}
-
-variable "github_webhook_secret" {
-  description = "GitHub webhook secret"
-  type        = string
-  sensitive   = true
-  default     = ""
-}
-
-

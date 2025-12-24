@@ -1,112 +1,133 @@
 ---
-- name: Configure Atlantis Server
+- name: Configure Atlantis via SSM
   hosts: atlantis
+  gather_facts: false
   become: yes
   vars:
-    atlantis_version: "0.28.1"
-    atlantis_port: 4141
-    atlantis_user: "atlantis"
-    atlantis_group: "atlantis"
-    atlantis_data_dir: "/var/lib/atlantis"
-    atlantis_config_dir: "/etc/atlantis"
-    github_user: "{{ lookup('env', 'GITHUB_USER') }}"
-    github_token: "{{ lookup('env', 'GITHUB_TOKEN') }}"
-    github_webhook_secret: "{{ lookup('env', 'GITHUB_WEBHOOK_SECRET') }}"
-
+    atlantis_version: "0.38.0"
+    atlantis_url: "https://atlantis.bytetrove.xyz"
+    # AWS Secrets Manager secret ARN containing GitHub credentials
+    secret_arn: "arn:aws:secretsmanager:us-west-2:778265708060:secret:atlantis/prod/config-k9SyAP"
+    aws_region: "us-west-2"
+  
   tasks:
-    - name: Update apt cache
-      apt:
-        update_cache: yes
-        cache_valid_time: 3600
+    - name: Bootstrap Python
+      raw: test -e /usr/bin/python3 || (apt -y update && apt install -y python3-minimal)
+      changed_when: false
 
-    - name: Upgrade all packages
-      apt:
-        upgrade: dist
+    - name: Verify we are running
+      debug:
+        msg: "Hello from the bootstrap process!"
 
-    - name: Install required packages
+    - name: Install Dependencies
       apt:
-        name:
-          - wget
+        name: 
           - unzip
           - git
           - curl
+          - jq
+          - awscli
+          - gnupg
         state: present
+        update_cache: yes
 
-    - name: Create atlantis system user
-      user:
-        name: "{{ atlantis_user }}"
-        system: yes
-        create_home: yes
-        shell: /bin/bash
+    # --- TERRAFORM INSTALLATION ---
+    - name: Add HashiCorp GPG key
+      shell: |
+        wget -O- https://apt.releases.hashicorp.com/gpg | gpg --dearmor | tee /usr/share/keyrings/hashicorp-archive-keyring.gpg > /dev/null
+      args:
+        creates: /usr/share/keyrings/hashicorp-archive-keyring.gpg
+
+    - name: Add HashiCorp Repo
+      shell: |
+        echo "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com $(lsb_release -cs) main" | tee /etc/apt/sources.list.d/hashicorp.list
+      args:
+        creates: /etc/apt/sources.list.d/hashicorp.list
+
+    - name: Install Terraform
+      apt:
+        name: terraform
         state: present
+        update_cache: yes
 
-    - name: Create atlantis directories
-      file:
-        path: "{{ item }}"
-        state: directory
-        owner: "{{ atlantis_user }}"
-        group: "{{ atlantis_group }}"
-        mode: '0755'
-      loop:
-        - "{{ atlantis_config_dir }}"
-        - "{{ atlantis_data_dir }}"
+    - name: Fetch Ansible SSH Private Key from Secrets Manager
+      shell: |
+        aws secretsmanager get-secret-value --secret-id atlantis/ansible-ssh-key-btUinW \
+          --query SecretString \
+          --output text \
+          --region us-west-2 | jq -r '.private_key' > /home/atlantis/.ssh/id_rsa
+      changed_when: false
 
-    - name: Download Atlantis binary
-      get_url:
-        url: "https://github.com/runatlantis/atlantis/releases/download/v{{ atlantis_version }}/atlantis_linux_amd64.zip"
-        dest: "/tmp/atlantis_linux_amd64.zip"
-        mode: '0644'
-
-    - name: Unzip Atlantis binary
+    # --- ATLANTIS INSTALLATION ---
+    - name: Install Atlantis Binary
       unarchive:
-        src: "/tmp/atlantis_linux_amd64.zip"
-        dest: "/tmp"
+        src: "https://github.com/runatlantis/atlantis/releases/download/v{{ atlantis_version }}/atlantis_linux_amd64.zip"
+        dest: /usr/local/bin/
         remote_src: yes
-
-    - name: Install Atlantis binary
-      copy:
-        src: "/tmp/atlantis"
-        dest: "/usr/local/bin/atlantis"
         mode: '0755'
-        remote_src: yes
 
-    - name: Create Atlantis server config
-      template:
-        src: atlantis-config.yaml.j2
-        dest: "{{ atlantis_config_dir }}/config.yaml"
-        owner: "{{ atlantis_user }}"
-        group: "{{ atlantis_group }}"
-        mode: '0644'
-      when: github_user != "" and github_token != ""
+    - name: Create Atlantis User
+      user:
+        name: atlantis
+        shell: /bin/bash
+        home: /home/atlantis
+        groups: adm
+        append: yes
 
-    - name: Create systemd service file
-      template:
-        src: atlantis.service.j2
+    - name: Create Atlantis home directory
+      file:
+        path: /home/atlantis
+        state: directory
+        owner: atlantis
+        group: atlantis
+        mode: '0755'
+
+    # THE MAGIC STEP: Create a wrapper script to fetch secrets from Secrets Manager
+    - name: Create Atlantis Wrapper Script
+      copy:
+        dest: /usr/local/bin/start-atlantis.sh
+        mode: '0755'
+        content: |
+          #!/bin/bash
+          
+          # Fetch JSON from AWS Secrets Manager
+          SECRET_JSON=$(aws secretsmanager get-secret-value --secret-id {{ secret_arn }} --query SecretString --output text --region {{ aws_region }})
+          
+          # Parse secrets into Env Vars (adjust keys to match your secret JSON structure)
+          GH_USER=$(echo $SECRET_JSON | jq -r '.atlantis_gh_user // .github_user // .gh_user')
+          GH_TOKEN=$(echo $SECRET_JSON | jq -r '.atlantis_gh_token // .github_token // .gh_token')
+          WH_SECRET=$(echo $SECRET_JSON | jq -r '.atlantis_gh_webhook_secret // .webhook_secret // .gh_webhook_secret')
+
+          # Start Atlantis with credentials
+          /usr/local/bin/atlantis server \
+            --atlantis-url="{{ atlantis_url }}" \
+            --gh-user="$GH_USER" \
+            --gh-token="$GH_TOKEN" \
+            --gh-webhook-secret="$WH_SECRET" \
+            --repo-allowlist="github.com/JLHGitHub101/My-Lab" \
+            --port=4141
+
+    - name: Create Systemd Service
+      copy:
         dest: /etc/systemd/system/atlantis.service
-        mode: '0644'
-      notify:
-        - Reload systemd
-        - Restart atlantis
+        content: |
+          [Unit]
+          Description=Atlantis
+          After=network.target
 
-    - name: Enable Atlantis service
-      systemd:
-        name: atlantis
-        enabled: yes
-      when: github_user != "" and github_token != "" and github_webhook_secret != ""
+          [Service]
+          User=atlantis
+          Group=atlantis
+          # Run the wrapper script, not the binary directly
+          ExecStart=/usr/local/bin/start-atlantis.sh
+          Restart=always
+          StandardOutput=journal
+          StandardError=journal
 
-    - name: Start Atlantis service
-      systemd:
-        name: atlantis
-        state: started
-      when: github_user != "" and github_token != "" and github_webhook_secret != ""
+          [Install]
+          WantedBy=multi-user.target
+      notify: Restart Atlantis
 
   handlers:
-    - name: Reload systemd
-      systemd:
-        daemon_reload: yes
-
-    - name: Restart atlantis
-      systemd:
-        name: atlantis
-        state: restarted
-      when: github_user != "" and github_token != "" and github_webhook_secret != ""
+    - name: Restart Atlantis
+      systemd: name=atlantis state=restarted enabled=yes daemon_reload=yes
