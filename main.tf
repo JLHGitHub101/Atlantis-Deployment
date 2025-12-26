@@ -1,5 +1,13 @@
-###
+###############################################################################
+# Providers / Metadata
+###############################################################################
+
+# (Provider block expected elsewhere in your repo)
 data "aws_caller_identity" "current" {}
+
+###############################################################################
+# Data Sources
+###############################################################################
 
 data "aws_ami" "ubuntu" {
   most_recent = true
@@ -16,10 +24,14 @@ data "aws_ami" "ubuntu" {
   }
 }
 
-# IAM role for EC2:
-# - SSM access (AmazonSSMManagedInstanceCore)
-# - Read Secrets Manager
-# - Admin access (for Terraform to manage infra)
+data "aws_route53_zone" "main" {
+  name = "bytetrove.xyz."
+}
+
+###############################################################################
+# IAM: Role, Policies, Instance Profile
+###############################################################################
+
 resource "aws_iam_role" "atlantis" {
   name = "atlantis-role"
   assume_role_policy = jsonencode({
@@ -33,9 +45,6 @@ resource "aws_iam_role_policy_attachment" "ssm" {
   policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
 }
 
-# Least-privilege IAM policy for Terraform operations used by the Atlantis server.
-# This policy is intentionally scoped to networking and EC2 resources managed in this module,
-# instead of using the broad PowerUserAccess managed policy.
 resource "aws_iam_role_policy" "atlantis_terraform" {
   name = "atlantis-terraform-operations"
   role = aws_iam_role.atlantis.id
@@ -75,11 +84,10 @@ resource "aws_iam_instance_profile" "atlantis" {
   ]
 }
 
-#########################
-# Networking
-#########################
+###############################################################################
+# Networking: VPC, IGW, Subnet, Route Table
+###############################################################################
 
-# VPC
 resource "aws_vpc" "main-vpc" {
   cidr_block           = var.vpc_cidr
   enable_dns_hostnames = true
@@ -90,7 +98,6 @@ resource "aws_vpc" "main-vpc" {
   }
 }
 
-# Internet Gateway
 resource "aws_internet_gateway" "main-igw" {
   vpc_id = aws_vpc.main-vpc.id
 
@@ -99,7 +106,6 @@ resource "aws_internet_gateway" "main-igw" {
   }
 }
 
-# Public Subnet
 resource "aws_subnet" "public" {
   vpc_id                  = aws_vpc.main-vpc.id
   cidr_block              = var.public_subnet_cidr
@@ -110,7 +116,6 @@ resource "aws_subnet" "public" {
   }
 }
 
-# Route Table
 resource "aws_route_table" "public" {
   vpc_id = aws_vpc.main-vpc.id
 
@@ -123,13 +128,16 @@ resource "aws_route_table" "public" {
     Name = "${var.project_name}-public-rt"
   }
 }
-# Route Table Association
+
 resource "aws_route_table_association" "public" {
   subnet_id      = aws_subnet.public.id
   route_table_id = aws_route_table.public.id
 }
 
-# Security Group with GitHub webhook IPs
+###############################################################################
+# Security Group(s)
+###############################################################################
+
 resource "aws_security_group" "atlantis" {
   name_prefix = "${var.project_name}-sg"
   description = "Security group for Atlantis server - allows GitHub webhooks + optional IP ranges"
@@ -173,21 +181,9 @@ resource "aws_security_group" "atlantis" {
   }
 }
 
-# Assumes you have a Hosted Zone in Route53
-data "aws_route53_zone" "main" {
-  name = "bytetrove.xyz."
-}
-
-#####################
-## Compute 
-####################
-
-# SSH Key Pair
-resource "aws_key_pair" "atlantis" {
-  count      = var.ssh_public_key != "" ? 1 : 0
-  key_name   = "${var.project_name}-key"
-  public_key = var.ssh_public_key
-}
+###############################################################################
+# Compute: Keypair, EC2 instance
+###############################################################################
 
 resource "aws_instance" "atlantis" {
   ami                    = data.aws_ami.ubuntu.id
@@ -197,7 +193,12 @@ resource "aws_instance" "atlantis" {
   vpc_security_group_ids = [aws_security_group.atlantis.id]
   #key_name               = var.ssh_public_key != "" ? aws_key_pair.atlantis[0].key_name : null
 
-  # 20GB Disk for Terraform Plans
+  instance_market_options{
+      market_type = "spot"
+      spot_options {
+        max_price = ""
+      }
+    }
   root_block_device {
     volume_size           = 20
     volume_type           = "gp3"
@@ -206,6 +207,10 @@ resource "aws_instance" "atlantis" {
 
   tags = { Name = "atlantis-server" }
 }
+
+###############################################################################
+# DNS: Route53 records
+###############################################################################
 
 resource "aws_route53_record" "atlantis" {
   zone_id = data.aws_route53_zone.main.zone_id
